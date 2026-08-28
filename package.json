@@ -1,0 +1,28 @@
+{
+  "name": "@tessel-la/roboboy-webrtc-panel",
+  "version": "1.2.0",
+  "description": "WebRTC/WHEP viewer for RTSP camera gateways in Robo-Boy",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "roboboy.panel.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2020 --outfile=dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "integrity": "node scripts/print-integrity.mjs",
+    "validate:artifact": "node scripts/validate-artifact.mjs",
+    "validate": "npm run typecheck && npm test && npm run build && npm run validate:artifact"
+  },
+  "devDependencies": {
+    "@tessel-la/roboboy-panel-sdk": "file:../robo-boy/panel-sdk",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3"
+  }
+}
