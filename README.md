@@ -9,7 +9,7 @@ The panel does not attempt to decode RTSP in the browser. A media gateway such a
 
 - WHEP offer/answer negotiation with best-effort session cleanup.
 - Automatic discovery of ready streams from Robo-Boy's restricted MediaMTX path-list route.
-- A source dropdown with refresh and a Custom URL fallback for external gateways.
+- A source dropdown with refresh and a Custom URL fallback within approved gateway origins.
 - Configurable contain, cover, or stretch behavior and optional audio.
 - Optional STUN/TURN URLs and a session-only bearer token that is never persisted.
 - Selectable resolution, bitrate, frame-rate, RTT latency, jitter, packet-loss, and dropped-frame indicators.
@@ -45,9 +45,9 @@ sorts them, and derives matching WHEP and RTSP endpoints. If the configured path
 is no longer available, the first ready path is selected automatically. The raw
 control API and all mutation endpoints remain inaccessible through Robo-Boy.
 
-Direct/desktop deployments attempt MediaMTX's standard
+Direct/desktop deployments use the declared `videoStream` host endpoint to derive MediaMTX's standard
 `http://HOST:9997/v3/paths/list` endpoint. When it is not reachable, choose
-**Custom URL…** and enter WHEP/RTSP endpoints manually.
+**Custom URL…** and enter WHEP/RTSP endpoints on an origin approved by the manifest.
 
 ## Develop
 
@@ -68,4 +68,8 @@ To load this working tree in Robo-Boy, list `robo-boy-webrtc-panel` in a schema-
 2. Add **WebRTC / RTSP Camera** to a Robo-Boy workspace.
 3. The panel discovers and connects to the ready stream automatically. Open **Configure** to select another discovered stream, refresh, or use a custom endpoint.
 
-The panel runs as trusted same-realm code. Its `network` capability permits WHEP requests and its `storage` capability persists non-secret per-tile settings; it does not access Robo-Boy's internal stores.
+The panel runs in an opaque-origin iframe. Its brokered `network` capability is limited to the known discovery and
+WHEP routes derived from the declared `videoStream` endpoint; requests omit browser credentials and redirects are
+rechecked against that route allowlist. Its `storage` capability persists non-secret per-tile settings. It cannot access the parent DOM,
+Robo-Boy stores, cookies, ROS, or unrelated runtime endpoints. To use a truly external WHEP gateway, add its exact
+HTTPS origin to the manifest and review that permission during installation.

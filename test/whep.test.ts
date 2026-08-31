@@ -40,6 +40,17 @@ test("derives discovered stream proxy and direct-host endpoints", () => {
   );
   assert.deepEqual(
     deriveGatewayEndpoints(
+      "https://roboboy.test/video_stream",
+      "https://roboboy.test/",
+      "genesis_wrist_camera",
+    ),
+    {
+      whep: "/webrtc/genesis_wrist_camera/whep",
+      rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
+    },
+  );
+  assert.deepEqual(
+    deriveGatewayEndpoints(
       "http://robot.local:8080",
       "tauri://localhost",
       "genesis_wrist_camera",
@@ -75,6 +86,13 @@ test("derives web-proxy and desktop discovery endpoints", () => {
     deriveGatewayDiscoveryEndpoint(
       "/video_stream",
       "https://roboboy.test/workspace",
+    ),
+    "/webrtc/_discovery/paths",
+  );
+  assert.equal(
+    deriveGatewayDiscoveryEndpoint(
+      "https://roboboy.test/video_stream",
+      "https://roboboy.test/",
     ),
     "/webrtc/_discovery/paths",
   );

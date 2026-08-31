@@ -259,9 +259,16 @@ const PANEL_MARKUP = `
 const createPanelInstance = (
   context: RoboBoyPanelContext,
 ): RoboBoyPanelInstance => {
-  const browserBaseUrl = globalThis.location?.href ?? "http://localhost/";
+  const network = context.network;
+  const videoStreamBaseUrl = network?.endpoints.videoStream;
+  if (!network || !videoStreamBaseUrl) {
+    throw new Error(
+      "The WebRTC panel requires its declared video-stream network permission.",
+    );
+  }
+  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
   const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    context.runtime.endpoints.videoStream,
+    videoStreamBaseUrl,
     browserBaseUrl,
   );
   const defaults: StreamConfig = {
@@ -346,7 +353,7 @@ const createPanelInstance = (
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
     const endpoints = deriveGatewayEndpoints(
-      context.runtime.endpoints.videoStream,
+      videoStreamBaseUrl,
       browserBaseUrl,
       selected,
     );
@@ -535,6 +542,7 @@ const createPanelInstance = (
         iceServers: parseIceServers(config.iceServers),
         receiveAudio: config.receiveAudio,
         signal: controller.signal,
+        fetcher: network.fetch,
         onTrack(event) {
           if (!video) return;
           video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
@@ -607,6 +615,7 @@ const createPanelInstance = (
       const streams = await discoverGatewayStreams(
         discoveryEndpoint,
         controller.signal,
+        network.fetch,
       );
       if (controller.signal.aborted || !active || !root) return;
       availableStreams = streams;
@@ -616,7 +625,7 @@ const createPanelInstance = (
           streams.find((stream) => stream.name === config.streamPath) ??
           streams[0];
         const endpoints = deriveGatewayEndpoints(
-          context.runtime.endpoints.videoStream,
+          videoStreamBaseUrl,
           browserBaseUrl,
           selected.name,
         );
@@ -752,7 +761,7 @@ const createPanelInstance = (
 };
 
 const definition: RoboBoyPanelDefinition = {
-  apiVersion: "1.0.0",
+  apiVersion: "2.0.0",
   id: PANEL_ID,
   activate: createPanelInstance,
 };

@@ -30,9 +30,9 @@ var parseIceServerLinks = (header) => {
   }
   return servers.slice(0, 8);
 };
-var discoverWhepIceServers = async (endpoint, token, signal) => {
+var discoverWhepIceServers = async (endpoint, token, signal, fetcher = fetch) => {
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetcher(endpoint, {
       method: "OPTIONS",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal
@@ -57,13 +57,14 @@ var deriveGatewayEndpoints = (videoStreamBaseUrl, browserBaseUrl, streamPath) =>
     throw new Error("The gateway stream path is invalid.");
   }
   const browser = new URL(browserBaseUrl);
-  if (videoStreamBaseUrl.startsWith("/")) {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  const proxyBacked = videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
+  if (proxyBacked) {
     return {
       whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${browser.hostname}:8554/${streamPath}`
+      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`
     };
   }
-  const video = new URL(videoStreamBaseUrl);
   const signaling = new URL(video.toString());
   signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
   signaling.port = "8889";
@@ -76,11 +77,10 @@ var deriveGatewayEndpoints = (videoStreamBaseUrl, browserBaseUrl, streamPath) =>
   };
 };
 var deriveGatewayDiscoveryEndpoint = (videoStreamBaseUrl, browserBaseUrl) => {
-  const browser = new URL(browserBaseUrl);
-  if (browser.protocol === "http:" || browser.protocol === "https:") {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  if (videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream") {
     return "/webrtc/_discovery/paths";
   }
-  const video = new URL(videoStreamBaseUrl);
   const endpoint = new URL(video.toString());
   endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
   endpoint.port = "9997";
@@ -148,7 +148,8 @@ var connectWhep = async (options) => {
   const discoveredIceServers = await discoverWhepIceServers(
     options.endpoint,
     options.token,
-    options.signal
+    options.signal,
+    options.fetcher
   );
   const peer = new RTCPeerConnection({
     iceServers: [...options.iceServers ?? [], ...discoveredIceServers].slice(
@@ -171,7 +172,7 @@ var connectWhep = async (options) => {
     await waitForIceGatheringComplete(peer);
     if (!peer.localDescription?.sdp)
       throw new Error("The browser did not create a WebRTC offer.");
-    const response = await fetch(options.endpoint, {
+    const response = await (options.fetcher ?? fetch)(options.endpoint, {
       method: "POST",
       headers: {
         Accept: "application/sdp",
@@ -210,9 +211,8 @@ var connectWhep = async (options) => {
       peer.close();
       if (sessionUrl) {
         try {
-          await fetch(sessionUrl, {
+          await (options.fetcher ?? fetch)(sessionUrl, {
             method: "DELETE",
-            keepalive: true,
             headers: options.token ? { Authorization: `Bearer ${options.token}` } : {}
           });
         } catch {
@@ -446,9 +446,16 @@ var PANEL_MARKUP = `
   </section>
 `;
 var createPanelInstance = (context) => {
-  const browserBaseUrl = globalThis.location?.href ?? "http://localhost/";
+  const network = context.network;
+  const videoStreamBaseUrl = network?.endpoints.videoStream;
+  if (!network || !videoStreamBaseUrl) {
+    throw new Error(
+      "The WebRTC panel requires its declared video-stream network permission."
+    );
+  }
+  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
   const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    context.runtime.endpoints.videoStream,
+    videoStreamBaseUrl,
     browserBaseUrl
   );
   const defaults = {
@@ -521,7 +528,7 @@ var createPanelInstance = (context) => {
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
     const endpoints = deriveGatewayEndpoints(
-      context.runtime.endpoints.videoStream,
+      videoStreamBaseUrl,
       browserBaseUrl,
       selected
     );
@@ -674,6 +681,7 @@ var createPanelInstance = (context) => {
         iceServers: parseIceServers(config.iceServers),
         receiveAudio: config.receiveAudio,
         signal: controller.signal,
+        fetcher: network.fetch,
         onTrack(event) {
           if (!video) return;
           video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
@@ -736,14 +744,15 @@ var createPanelInstance = (context) => {
     try {
       const streams = await discoverGatewayStreams(
         discoveryEndpoint,
-        controller.signal
+        controller.signal,
+        network.fetch
       );
       if (controller.signal.aborted || !active || !root) return;
       availableStreams = streams;
       if (config.sourceMode === "discovered" && streams.length > 0) {
         const selected = streams.find((stream) => stream.name === config.streamPath) ?? streams[0];
         const endpoints = deriveGatewayEndpoints(
-          context.runtime.endpoints.videoStream,
+          videoStreamBaseUrl,
           browserBaseUrl,
           selected.name
         );
@@ -862,7 +871,7 @@ var createPanelInstance = (context) => {
   };
 };
 var definition = {
-  apiVersion: "1.0.0",
+  apiVersion: "2.0.0",
   id: PANEL_ID,
   activate: createPanelInstance
 };

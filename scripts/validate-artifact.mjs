@@ -31,7 +31,7 @@ if (integrity !== manifest.integrity) {
 if (
   !module.default ||
   module.default.id !== manifest.id ||
-  module.default.apiVersion !== "1.0.0"
+  module.default.apiVersion !== "2.0.0"
 ) {
   throw new Error("The built module does not match roboboy.panel.json.");
 }
@@ -43,18 +43,17 @@ const noop = () => {};
 const instance = await module.default.activate({
   panelId: manifest.id,
   instanceId: "artifact-validation",
-  hostVersion: "0.3.0",
-  capabilities: new Set(manifest.capabilities),
+  capabilities: manifest.capabilities,
   ros: null,
   storage: null,
+  network: {
+    endpoints: { videoStream: "https://roboboy.example/video_stream" },
+    fetch: async () => {
+      throw new Error("Network access is not expected during artifact activation.");
+    },
+  },
   runtime: {
     target: "web",
-    endpoints: {
-      rosbridge: "/rosbridge",
-      videoStream: "/video_stream",
-      meshResources: "/meshes",
-      ollama: "/ollama",
-    },
   },
   connection: {
     getSnapshot: () => ({ status: "disconnected", generation: 0 }),
