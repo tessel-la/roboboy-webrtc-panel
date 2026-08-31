@@ -58,7 +58,9 @@ npm run integrity
 npm run validate
 ```
 
-After changing the bundle, copy the value printed by `npm run integrity` into `roboboy.panel.json`. The SDK is a local type-only dependency in this workspace; use the published SDK version when it becomes available.
+After changing the bundle, copy the value printed by `npm run integrity` into `roboboy.panel.json`. The type-only SDK development dependency is pinned to the versioned Panel SDK GitHub release.
+
+To load this working tree in Robo-Boy, list `robo-boy-webrtc-panel` in a schema-v2 local source's `repositories` array and rerun the panel installer. A local source reads the manifest and bundle directly; an inventory entry is needed only for a published remote installation.
 
 ## Use
 
@@ -66,4 +68,4 @@ After changing the bundle, copy the value printed by `npm run integrity` into `r
 2. Add **WebRTC / RTSP Camera** to a Robo-Boy workspace.
 3. The panel discovers and connects to the ready stream automatically. Open **Configure** to select another discovered stream, refresh, or use a custom endpoint.
 
-The v1 panel runs as trusted same-realm code. Its `network` capability permits WHEP requests and its `storage` capability persists non-secret per-tile settings; it does not access Robo-Boy's internal stores.
+The panel runs as trusted same-realm code. Its `network` capability permits WHEP requests and its `storage` capability persists non-secret per-tile settings; it does not access Robo-Boy's internal stores.
