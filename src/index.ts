@@ -112,7 +112,7 @@ const sanitizeConfig = (
 
 const PANEL_MARKUP = `
   <style>
-    .rb-webrtc { position: relative; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; box-sizing: border-box; overflow: hidden; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 system-ui, sans-serif; }
+    .rb-webrtc { position: relative; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; box-sizing: border-box; overflow: hidden; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 var(--font-family-ui, system-ui, sans-serif); }
     .rb-webrtc * { box-sizing: border-box; }
     .rb-webrtc__toolbar, .rb-webrtc__status, .rb-webrtc__footer, .rb-webrtc__metrics { display: flex; align-items: center; gap: 8px; }
     .rb-webrtc__toolbar { flex-wrap: wrap; }
@@ -134,20 +134,20 @@ const PANEL_MARKUP = `
     .rb-webrtc__metric[hidden] { display: none; }
     .rb-webrtc__metric small { color: var(--text-secondary, #8f9aa8); font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
     .rb-webrtc__metric strong { color: var(--text-color, #eef3f8); font-size: 12px; font-weight: 600; }
-    .rb-webrtc__protocol { color: #8bc4ff; background: #5ca9ff1c; }
+    .rb-webrtc__protocol { color: var(--primary-color, #8bc4ff); background: color-mix(in srgb, var(--primary-color, #5ca9ff) 12%, transparent); }
     .rb-webrtc__settings { position: absolute; z-index: 10; inset: 50px 8px 8px auto; width: min(620px, calc(100% - 16px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-color, #343d49); border-radius: 10px; box-shadow: 0 12px 32px #0009; background: var(--card-bg, #242b36); }
     .rb-webrtc__settings[hidden] { display: none; }
     .rb-webrtc__settings-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .rb-webrtc__settings-header h3 { margin: 0; font-size: 15px; }
     .rb-webrtc__source { display: grid; gap: 10px; }
     .rb-webrtc label { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary, #aeb8c4); }
-    .rb-webrtc input, .rb-webrtc select, .rb-webrtc textarea { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 5px; padding: 7px 8px; color: var(--text-color, #eef3f8); background: var(--background-primary, #11161d); font: inherit; }
+    .rb-webrtc input, .rb-webrtc select, .rb-webrtc textarea { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 7px 9px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
     .rb-webrtc textarea { min-height: 62px; resize: vertical; }
     .rb-webrtc__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     .rb-webrtc__custom { display: grid; gap: 10px; }
     .rb-webrtc__custom[hidden] { display: none; }
     .rb-webrtc__helper, .rb-webrtc__notice { margin: 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; }
-    .rb-webrtc__notice { padding: 8px 9px; border-left: 3px solid #5ca9ff; background: #5ca9ff10; }
+    .rb-webrtc__notice { padding: 8px 9px; border-left: 3px solid var(--primary-color, #5ca9ff); background: color-mix(in srgb, var(--primary-color, #5ca9ff) 7%, transparent); }
     .rb-webrtc__advanced { border: 1px solid var(--border-color, #343d49); border-radius: 8px; }
     .rb-webrtc__advanced summary { padding: 9px 10px; cursor: pointer; font-weight: 600; }
     .rb-webrtc__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 2px 10px 10px; }
