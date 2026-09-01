@@ -6,7 +6,27 @@ export interface WhepConnectionOptions {
   signal?: AbortSignal;
   onTrack(track: RTCTrackEvent): void;
   onStateChange?(state: RTCPeerConnectionState): void;
+  fetcher?: PanelFetch;
 }
+
+interface PanelFetchResponse {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly headers: { get(name: string): string | null };
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+}
+
+type PanelFetch = (
+  url: string,
+  request?: {
+    method?: "GET" | "POST" | "DELETE" | "OPTIONS";
+    headers?: Record<string, string>;
+    body?: string;
+    cache?: "default" | "no-store";
+    signal?: AbortSignal;
+  },
+) => Promise<PanelFetchResponse>;
 
 export interface WhepConnection {
   readonly peer: RTCPeerConnection;
@@ -64,9 +84,10 @@ export const discoverWhepIceServers = async (
   endpoint: string,
   token?: string,
   signal?: AbortSignal,
+  fetcher: PanelFetch = fetch,
 ): Promise<RTCIceServer[]> => {
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetcher(endpoint, {
       method: "OPTIONS",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal,
@@ -102,14 +123,16 @@ export const deriveGatewayEndpoints = (
     throw new Error("The gateway stream path is invalid.");
   }
   const browser = new URL(browserBaseUrl);
-  if (videoStreamBaseUrl.startsWith("/")) {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  const proxyBacked =
+    videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
+  if (proxyBacked) {
     return {
       whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${browser.hostname}:8554/${streamPath}`,
+      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`,
     };
   }
 
-  const video = new URL(videoStreamBaseUrl);
   const signaling = new URL(video.toString());
   signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
   signaling.port = "8889";
@@ -126,12 +149,14 @@ export const deriveGatewayDiscoveryEndpoint = (
   videoStreamBaseUrl: string,
   browserBaseUrl: string,
 ): string => {
-  const browser = new URL(browserBaseUrl);
-  if (browser.protocol === "http:" || browser.protocol === "https:") {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  if (
+    videoStreamBaseUrl.startsWith("/") ||
+    video.pathname === "/video_stream"
+  ) {
     return "/webrtc/_discovery/paths";
   }
 
-  const video = new URL(videoStreamBaseUrl);
   const endpoint = new URL(video.toString());
   endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
   endpoint.port = "9997";
@@ -175,7 +200,7 @@ export const parseGatewayStreams = (value: unknown): GatewayStream[] => {
 export const discoverGatewayStreams = async (
   endpoint: string,
   signal?: AbortSignal,
-  fetcher: typeof fetch = fetch,
+  fetcher: PanelFetch = fetch,
 ): Promise<GatewayStream[]> => {
   const response = await fetcher(endpoint, {
     method: "GET",
@@ -236,6 +261,7 @@ export const connectWhep = async (
     options.endpoint,
     options.token,
     options.signal,
+    options.fetcher,
   );
   const peer = new RTCPeerConnection({
     iceServers: [...(options.iceServers ?? []), ...discoveredIceServers].slice(
@@ -261,7 +287,7 @@ export const connectWhep = async (
     if (!peer.localDescription?.sdp)
       throw new Error("The browser did not create a WebRTC offer.");
 
-    const response = await fetch(options.endpoint, {
+    const response = await (options.fetcher ?? fetch)(options.endpoint, {
       method: "POST",
       headers: {
         Accept: "application/sdp",
@@ -301,9 +327,8 @@ export const connectWhep = async (
       peer.close();
       if (sessionUrl) {
         try {
-          await fetch(sessionUrl, {
+          await (options.fetcher ?? fetch)(sessionUrl, {
             method: "DELETE",
-            keepalive: true,
             headers: options.token
               ? { Authorization: `Bearer ${options.token}` }
               : {},

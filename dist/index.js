@@ -30,9 +30,9 @@ var parseIceServerLinks = (header) => {
   }
   return servers.slice(0, 8);
 };
-var discoverWhepIceServers = async (endpoint, token, signal) => {
+var discoverWhepIceServers = async (endpoint, token, signal, fetcher = fetch) => {
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetcher(endpoint, {
       method: "OPTIONS",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal
@@ -57,13 +57,14 @@ var deriveGatewayEndpoints = (videoStreamBaseUrl, browserBaseUrl, streamPath) =>
     throw new Error("The gateway stream path is invalid.");
   }
   const browser = new URL(browserBaseUrl);
-  if (videoStreamBaseUrl.startsWith("/")) {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  const proxyBacked = videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
+  if (proxyBacked) {
     return {
       whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${browser.hostname}:8554/${streamPath}`
+      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`
     };
   }
-  const video = new URL(videoStreamBaseUrl);
   const signaling = new URL(video.toString());
   signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
   signaling.port = "8889";
@@ -76,11 +77,10 @@ var deriveGatewayEndpoints = (videoStreamBaseUrl, browserBaseUrl, streamPath) =>
   };
 };
 var deriveGatewayDiscoveryEndpoint = (videoStreamBaseUrl, browserBaseUrl) => {
-  const browser = new URL(browserBaseUrl);
-  if (browser.protocol === "http:" || browser.protocol === "https:") {
+  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
+  if (videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream") {
     return "/webrtc/_discovery/paths";
   }
-  const video = new URL(videoStreamBaseUrl);
   const endpoint = new URL(video.toString());
   endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
   endpoint.port = "9997";
@@ -148,7 +148,8 @@ var connectWhep = async (options) => {
   const discoveredIceServers = await discoverWhepIceServers(
     options.endpoint,
     options.token,
-    options.signal
+    options.signal,
+    options.fetcher
   );
   const peer = new RTCPeerConnection({
     iceServers: [...options.iceServers ?? [], ...discoveredIceServers].slice(
@@ -171,7 +172,7 @@ var connectWhep = async (options) => {
     await waitForIceGatheringComplete(peer);
     if (!peer.localDescription?.sdp)
       throw new Error("The browser did not create a WebRTC offer.");
-    const response = await fetch(options.endpoint, {
+    const response = await (options.fetcher ?? fetch)(options.endpoint, {
       method: "POST",
       headers: {
         Accept: "application/sdp",
@@ -210,9 +211,8 @@ var connectWhep = async (options) => {
       peer.close();
       if (sessionUrl) {
         try {
-          await fetch(sessionUrl, {
+          await (options.fetcher ?? fetch)(sessionUrl, {
             method: "DELETE",
-            keepalive: true,
             headers: options.token ? { Authorization: `Bearer ${options.token}` } : {}
           });
         } catch {
@@ -302,7 +302,7 @@ var sanitizeConfig = (value, defaults) => {
 };
 var PANEL_MARKUP = `
   <style>
-    .rb-webrtc { position: relative; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; box-sizing: border-box; overflow: hidden; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 system-ui, sans-serif; }
+    .rb-webrtc { position: relative; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; box-sizing: border-box; overflow: hidden; color: var(--text-color, #eef3f8); background: var(--background-secondary, #171c24); font: 13px/1.35 var(--font-family-ui, system-ui, sans-serif); }
     .rb-webrtc * { box-sizing: border-box; }
     .rb-webrtc__toolbar, .rb-webrtc__status, .rb-webrtc__footer, .rb-webrtc__metrics { display: flex; align-items: center; gap: 8px; }
     .rb-webrtc__toolbar { flex-wrap: wrap; }
@@ -324,20 +324,20 @@ var PANEL_MARKUP = `
     .rb-webrtc__metric[hidden] { display: none; }
     .rb-webrtc__metric small { color: var(--text-secondary, #8f9aa8); font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
     .rb-webrtc__metric strong { color: var(--text-color, #eef3f8); font-size: 12px; font-weight: 600; }
-    .rb-webrtc__protocol { color: #8bc4ff; background: #5ca9ff1c; }
+    .rb-webrtc__protocol { color: var(--primary-color, #8bc4ff); background: color-mix(in srgb, var(--primary-color, #5ca9ff) 12%, transparent); }
     .rb-webrtc__settings { position: absolute; z-index: 10; inset: 50px 8px 8px auto; width: min(620px, calc(100% - 16px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-color, #343d49); border-radius: 10px; box-shadow: 0 12px 32px #0009; background: var(--card-bg, #242b36); }
     .rb-webrtc__settings[hidden] { display: none; }
     .rb-webrtc__settings-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .rb-webrtc__settings-header h3 { margin: 0; font-size: 15px; }
     .rb-webrtc__source { display: grid; gap: 10px; }
     .rb-webrtc label { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary, #aeb8c4); }
-    .rb-webrtc input, .rb-webrtc select, .rb-webrtc textarea { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 5px; padding: 7px 8px; color: var(--text-color, #eef3f8); background: var(--background-primary, #11161d); font: inherit; }
+    .rb-webrtc input, .rb-webrtc select, .rb-webrtc textarea { width: 100%; min-width: 0; border: 1px solid var(--border-color, #414b59); border-radius: 8px; padding: 7px 9px; color: var(--text-color, #eef3f8); background: var(--background-color, #11161d); font: inherit; }
     .rb-webrtc textarea { min-height: 62px; resize: vertical; }
     .rb-webrtc__input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
     .rb-webrtc__custom { display: grid; gap: 10px; }
     .rb-webrtc__custom[hidden] { display: none; }
     .rb-webrtc__helper, .rb-webrtc__notice { margin: 0; color: var(--text-secondary, #8f9aa8); font-size: 12px; }
-    .rb-webrtc__notice { padding: 8px 9px; border-left: 3px solid #5ca9ff; background: #5ca9ff10; }
+    .rb-webrtc__notice { padding: 8px 9px; border-left: 3px solid var(--primary-color, #5ca9ff); background: color-mix(in srgb, var(--primary-color, #5ca9ff) 7%, transparent); }
     .rb-webrtc__advanced { border: 1px solid var(--border-color, #343d49); border-radius: 8px; }
     .rb-webrtc__advanced summary { padding: 9px 10px; cursor: pointer; font-weight: 600; }
     .rb-webrtc__advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 2px 10px 10px; }
@@ -446,9 +446,16 @@ var PANEL_MARKUP = `
   </section>
 `;
 var createPanelInstance = (context) => {
-  const browserBaseUrl = globalThis.location?.href ?? "http://localhost/";
+  const network = context.network;
+  const videoStreamBaseUrl = network?.endpoints.videoStream;
+  if (!network || !videoStreamBaseUrl) {
+    throw new Error(
+      "The WebRTC panel requires its declared video-stream network permission."
+    );
+  }
+  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
   const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    context.runtime.endpoints.videoStream,
+    videoStreamBaseUrl,
     browserBaseUrl
   );
   const defaults = {
@@ -521,7 +528,7 @@ var createPanelInstance = (context) => {
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
     const endpoints = deriveGatewayEndpoints(
-      context.runtime.endpoints.videoStream,
+      videoStreamBaseUrl,
       browserBaseUrl,
       selected
     );
@@ -674,6 +681,7 @@ var createPanelInstance = (context) => {
         iceServers: parseIceServers(config.iceServers),
         receiveAudio: config.receiveAudio,
         signal: controller.signal,
+        fetcher: network.fetch,
         onTrack(event) {
           if (!video) return;
           video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
@@ -736,14 +744,15 @@ var createPanelInstance = (context) => {
     try {
       const streams = await discoverGatewayStreams(
         discoveryEndpoint,
-        controller.signal
+        controller.signal,
+        network.fetch
       );
       if (controller.signal.aborted || !active || !root) return;
       availableStreams = streams;
       if (config.sourceMode === "discovered" && streams.length > 0) {
         const selected = streams.find((stream) => stream.name === config.streamPath) ?? streams[0];
         const endpoints = deriveGatewayEndpoints(
-          context.runtime.endpoints.videoStream,
+          videoStreamBaseUrl,
           browserBaseUrl,
           selected.name
         );
@@ -862,7 +871,7 @@ var createPanelInstance = (context) => {
   };
 };
 var definition = {
-  apiVersion: "1.0.0",
+  apiVersion: "2.0.0",
   id: PANEL_ID,
   activate: createPanelInstance
 };
