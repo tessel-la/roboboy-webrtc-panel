@@ -8,7 +8,7 @@
   "integrity": "sha256-5GTGg4NlwM15CQtnE1iAwQ3Z81gE/152GSp0r/a6v8E=",
   "compatibility": {
     "panelApi": "^2.0.0",
-    "roboboy": ">=0.5.1-0 <1.0.0"
+    "roboboy": ">=0.6.0-0 <1.0.0"
   },
   "capabilities": [
     "network",
