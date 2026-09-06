@@ -570,14 +570,22 @@ const createPanelInstance = (
       },
       { once: true },
     );
-    // Playback starts once there is something to play. Asking earlier rejects for want of a
-    // source, which said nothing about the stream and hid what had actually gone wrong.
+    // A parsed manifest means the stream is addressable, not that a frame is buffered, so try
+    // again when the element itself says it can play. Whatever refuses is named: "cannot start" and
+    // "is not allowed to start" need different answers, and only the browser knows which it is.
+    const startPlayback = () => {
+      if (hlsPlayer !== player || !video || !video.paused) return;
+      void video.play().catch((error: unknown) => {
+        if (reportedFailure || hlsPlayer !== player) return;
+        const name = error instanceof Error ? error.name : "Error";
+        setStatus(`Playback refused (${name}) · tap video to play`, "warn");
+      });
+    };
+    video.addEventListener("canplay", startPlayback, { once: true });
     player.on(Hls.Events.MANIFEST_PARSED, () => {
       if (hlsPlayer !== player || !video) return;
       query<HTMLElement>('[data-role="placeholder"]').hidden = true;
-      void video.play().catch(() => {
-        if (!reportedFailure) setStatus("Stream ready · tap video to play", "warn");
-      });
+      startPlayback();
     });
     player.loadSource(url);
     player.attachMedia(video);
