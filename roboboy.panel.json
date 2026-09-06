@@ -5,7 +5,7 @@
   "description": "Plays low-latency WHEP streams and documents their RTSP gateway source.",
   "version": "3.0.0",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-GG6iXCPsYemM8TdbcbQmAVUsQC9AJO7qRK8TdA+BaAc=",
+  "integrity": "sha256-KDWQh23DkfhWJYrapzVKYKDpZGwyZvvCEc2/ae2g3g8=",
   "compatibility": {
     "panelApi": "^2.0.0",
     "roboboy": ">=0.6.0-0 <1.0.0"

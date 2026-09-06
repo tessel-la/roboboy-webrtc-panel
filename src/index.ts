@@ -549,9 +549,14 @@ const createPanelInstance = (
       loader: createHlsBrokerLoader(network) as unknown as typeof Hls.DefaultConfig.loader,
     });
     hlsPlayer = player;
+    // A failure is what the person needs to read, so nothing later overwrites it -- least of all a
+    // playback attempt that was only ever going to fail once the stream had not arrived.
+    let reportedFailure = false;
     player.on(Hls.Events.ERROR, (_event, data) => {
-      if (!data.fatal || hlsPlayer !== player) return;
-      context.logger.warn("HLS playback failed.", data.details);
+      if (hlsPlayer !== player) return;
+      context.logger.warn("HLS playback failed.", `${data.details}${data.fatal ? " (fatal)" : ""}`);
+      if (!data.fatal) return;
+      reportedFailure = true;
       setStatus(`HLS ${data.details}`, "warn");
       void disconnect(false);
     });
@@ -565,9 +570,17 @@ const createPanelInstance = (
       },
       { once: true },
     );
+    // Playback starts once there is something to play. Asking earlier rejects for want of a
+    // source, which said nothing about the stream and hid what had actually gone wrong.
+    player.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (hlsPlayer !== player || !video) return;
+      query<HTMLElement>('[data-role="placeholder"]').hidden = true;
+      void video.play().catch(() => {
+        if (!reportedFailure) setStatus("Stream ready · tap video to play", "warn");
+      });
+    });
     player.loadSource(url);
     player.attachMedia(video);
-    void video.play().catch(() => setStatus("Stream ready · tap video to play", "warn"));
   };
 
   const connect = async () => {
