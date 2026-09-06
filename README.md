@@ -39,15 +39,18 @@ When Manipulator Sim is active, the same dropdown discovers
 
 ## Stream discovery
 
-Robo-Boy exposes only `GET /webrtc/_discovery/paths` from MediaMTX's loopback
-control API. The panel filters that response to ready paths with safe names,
-sorts them, and derives matching WHEP and RTSP endpoints. If the configured path
-is no longer available, the first ready path is selected automatically. The raw
-control API and all mutation endpoints remain inaccessible through Robo-Boy.
+The panel declares two host endpoints, `webrtcDiscovery` and `webrtcWhep`, and Robo-Boy resolves both. It
+therefore reaches whichever gateway the connected deployment runs, without knowing a host or a port: a
+same-origin route where the client is a browser behind Robo-Boy's proxy, the gateway's own address where it is
+the packaged desktop or mobile app, and a gateway on a machine of its own wherever the deployment has put one.
 
-Direct/desktop deployments use the declared `videoStream` host endpoint to derive MediaMTX's standard
-`http://HOST:9997/v3/paths/list` endpoint. When it is not reachable, choose
-**Custom URL…** and enter WHEP/RTSP endpoints on an origin approved by the manifest.
+Discovery is automatic. The panel filters the listing to ready paths with safe names, sorts them, and builds
+matching WHEP and RTSP endpoints beneath the gateway it was given. If the configured path is no longer
+available, the first ready one is selected.
+
+Only that one read-only listing is exposed; the control API and every mutation endpoint stay unreachable
+through Robo-Boy. When no gateway is reachable, choose **Custom URL…** and enter WHEP/RTSP endpoints on an
+origin approved by the manifest.
 
 ## Develop
 
@@ -69,7 +72,7 @@ To load this working tree in Robo-Boy, list `robo-boy-webrtc-panel` in a schema-
 3. The panel discovers and connects to the ready stream automatically. Open **Configure** to select another discovered stream, refresh, or use a custom endpoint.
 
 The panel runs in an opaque-origin iframe. Its brokered `network` capability is limited to the known discovery and
-WHEP routes derived from the declared `videoStream` endpoint; requests omit browser credentials and redirects are
+WHEP routes beneath the declared gateway endpoints; requests omit browser credentials and redirects are
 rechecked against that route allowlist. Its `storage` capability persists non-secret per-tile settings. It cannot access the parent DOM,
 Robo-Boy stores, cookies, ROS, or unrelated runtime endpoints. To use a truly external WHEP gateway, add its exact
 HTTPS origin to the manifest and review that permission during installation.

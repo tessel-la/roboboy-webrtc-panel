@@ -114,56 +114,27 @@ export const normalizeWhepEndpoint = (
   return endpoint.toString();
 };
 
+/**
+ * The endpoints for one stream on the gateway Robo-Boy resolved.
+ *
+ * The base is whatever the host handed over: a same-origin route where the client reaches the
+ * gateway through a proxy, the gateway's own address where it does not. Neither shape, nor any
+ * port, is decided here -- the host knows where the gateway is and this panel does not have to
+ * guess. RTSP is the exception, being the one thing the gateway does not sign-post, and it is shown
+ * for native clients rather than used by this panel.
+ */
 export const deriveGatewayEndpoints = (
-  videoStreamBaseUrl: string,
-  browserBaseUrl: string,
+  whepBaseUrl: string,
   streamPath: string,
 ): { whep: string; rtsp: string } => {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(streamPath)) {
     throw new Error("The gateway stream path is invalid.");
   }
-  const browser = new URL(browserBaseUrl);
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  const proxyBacked =
-    videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
-  if (proxyBacked) {
-    return {
-      whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`,
-    };
-  }
-
-  const signaling = new URL(video.toString());
-  signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
-  signaling.port = "8889";
-  signaling.pathname = `/${streamPath}/whep`;
-  signaling.search = "";
-  signaling.hash = "";
+  const base = new URL(whepBaseUrl);
   return {
-    whep: signaling.toString(),
-    rtsp: `rtsp://${video.hostname}:8554/${streamPath}`,
+    whep: new URL(`${streamPath}/whep`, base).toString(),
+    rtsp: `rtsp://${base.hostname}:8554/${streamPath}`,
   };
-};
-
-export const deriveGatewayDiscoveryEndpoint = (
-  videoStreamBaseUrl: string,
-  browserBaseUrl: string,
-): string => {
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  if (
-    videoStreamBaseUrl.startsWith("/") ||
-    video.pathname === "/video_stream"
-  ) {
-    return "/webrtc/_discovery/paths";
-  }
-
-  const endpoint = new URL(video.toString());
-  endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
-  endpoint.port = "9997";
-  endpoint.pathname = "/v3/paths/list";
-  endpoint.search = "";
-  endpoint.hash = "";
-  return endpoint.toString();
 };
 
 export const parseGatewayStreams = (value: unknown): GatewayStream[] => {

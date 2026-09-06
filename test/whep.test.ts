@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  deriveGatewayDiscoveryEndpoint,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
   normalizeWhepEndpoint,
@@ -26,82 +25,34 @@ test("normalizes relative WHEP endpoints and rejects non-HTTP transports", () =>
   );
 });
 
-test("derives discovered stream proxy and direct-host endpoints", () => {
+// The host resolves where the gateway is; the panel appends a stream to it and never decides a
+// host or a port for itself. Both shapes arrive absolute, because the host absolutises every
+// endpoint it grants.
+test("builds stream endpoints on whichever gateway the host resolved", () => {
   assert.deepEqual(
     deriveGatewayEndpoints(
-      "/video_stream",
-      "https://roboboy.test",
+      "https://roboboy.test/webrtc/",
       "genesis_wrist_camera",
     ),
     {
-      whep: "/webrtc/genesis_wrist_camera/whep",
+      whep: "https://roboboy.test/webrtc/genesis_wrist_camera/whep",
       rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
     },
   );
+  // A gateway of its own, which need not share a host or a port with anything else.
   assert.deepEqual(
-    deriveGatewayEndpoints(
-      "https://roboboy.test/video_stream",
-      "https://roboboy.test/",
-      "genesis_wrist_camera",
-    ),
+    deriveGatewayEndpoints("http://gateway.local:18889/", "wrist_camera"),
     {
-      whep: "/webrtc/genesis_wrist_camera/whep",
-      rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
-    },
-  );
-  assert.deepEqual(
-    deriveGatewayEndpoints(
-      "http://robot.local:8080",
-      "tauri://localhost",
-      "genesis_wrist_camera",
-    ),
-    {
-      whep: "http://robot.local:8889/genesis_wrist_camera/whep",
-      rtsp: "rtsp://robot.local:8554/genesis_wrist_camera",
+      whep: "http://gateway.local:18889/wrist_camera/whep",
+      rtsp: "rtsp://gateway.local:8554/wrist_camera",
     },
   );
 });
 
-test("derives arbitrary safe gateway stream paths", () => {
-  assert.deepEqual(
-    deriveGatewayEndpoints(
-      "/video_stream",
-      "https://roboboy.test",
-      "manipulator_wrist_camera",
-    ),
-    {
-      whep: "/webrtc/manipulator_wrist_camera/whep",
-      rtsp: "rtsp://roboboy.test:8554/manipulator_wrist_camera",
-    },
-  );
+test("refuses a stream path that would leave the gateway", () => {
   assert.throws(
-    () =>
-      deriveGatewayEndpoints("/video_stream", "https://roboboy.test", "../bad"),
+    () => deriveGatewayEndpoints("https://roboboy.test/webrtc/", "../bad"),
     /invalid/,
-  );
-});
-
-test("derives web-proxy and desktop discovery endpoints", () => {
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "/video_stream",
-      "https://roboboy.test/workspace",
-    ),
-    "/webrtc/_discovery/paths",
-  );
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "https://roboboy.test/video_stream",
-      "https://roboboy.test/",
-    ),
-    "/webrtc/_discovery/paths",
-  );
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "http://robot.local:8080",
-      "tauri://localhost",
-    ),
-    "http://robot.local:9997/v3/paths/list",
   );
 });
 

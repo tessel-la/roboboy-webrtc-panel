@@ -6,7 +6,6 @@ import type {
 } from "@tessel-la/roboboy-panel-sdk";
 import {
   connectWhep,
-  deriveGatewayDiscoveryEndpoint,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
   normalizeWhepEndpoint,
@@ -260,17 +259,16 @@ const createPanelInstance = (
   context: RoboBoyPanelContext,
 ): RoboBoyPanelInstance => {
   const network = context.network;
-  const videoStreamBaseUrl = network?.endpoints.videoStream;
-  if (!network || !videoStreamBaseUrl) {
+  // Where the gateway is, is Robo-Boy's to answer: it knows whether this client reaches it through
+  // a same-origin route or at an address of its own, and on which ports. Both arrive absolute.
+  const whepBaseUrl = network?.endpoints.webrtcWhep;
+  const discoveryEndpoint = network?.endpoints.webrtcDiscovery;
+  if (!network || !whepBaseUrl || !discoveryEndpoint) {
     throw new Error(
-      "The WebRTC panel requires its declared video-stream network permission.",
+      "The WebRTC panel requires its declared stream-gateway network permissions.",
     );
   }
-  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
-  const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    videoStreamBaseUrl,
-    browserBaseUrl,
-  );
+  const browserBaseUrl = new URL(whepBaseUrl).origin + "/";
   const defaults: StreamConfig = {
     sourceMode: "discovered",
     streamPath: "",
@@ -352,11 +350,7 @@ const createPanelInstance = (
     const custom = selected === CUSTOM_SOURCE;
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
-    const endpoints = deriveGatewayEndpoints(
-      videoStreamBaseUrl,
-      browserBaseUrl,
-      selected,
-    );
+    const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected);
     query<HTMLInputElement>('[data-field="whepUrl"]').value = endpoints.whep;
     query<HTMLInputElement>('[data-field="rtspUrl"]').value = endpoints.rtsp;
   };
@@ -624,11 +618,7 @@ const createPanelInstance = (
         const selected =
           streams.find((stream) => stream.name === config.streamPath) ??
           streams[0];
-        const endpoints = deriveGatewayEndpoints(
-          videoStreamBaseUrl,
-          browserBaseUrl,
-          selected.name,
-        );
+        const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected.name);
         config = {
           ...config,
           streamPath: selected.name,

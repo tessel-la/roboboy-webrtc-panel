@@ -52,42 +52,15 @@ var normalizeWhepEndpoint = (value, baseUrl) => {
   endpoint.hash = "";
   return endpoint.toString();
 };
-var deriveGatewayEndpoints = (videoStreamBaseUrl, browserBaseUrl, streamPath) => {
+var deriveGatewayEndpoints = (whepBaseUrl, streamPath) => {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(streamPath)) {
     throw new Error("The gateway stream path is invalid.");
   }
-  const browser = new URL(browserBaseUrl);
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  const proxyBacked = videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
-  if (proxyBacked) {
-    return {
-      whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`
-    };
-  }
-  const signaling = new URL(video.toString());
-  signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
-  signaling.port = "8889";
-  signaling.pathname = `/${streamPath}/whep`;
-  signaling.search = "";
-  signaling.hash = "";
+  const base = new URL(whepBaseUrl);
   return {
-    whep: signaling.toString(),
-    rtsp: `rtsp://${video.hostname}:8554/${streamPath}`
+    whep: new URL(`${streamPath}/whep`, base).toString(),
+    rtsp: `rtsp://${base.hostname}:8554/${streamPath}`
   };
-};
-var deriveGatewayDiscoveryEndpoint = (videoStreamBaseUrl, browserBaseUrl) => {
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  if (videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream") {
-    return "/webrtc/_discovery/paths";
-  }
-  const endpoint = new URL(video.toString());
-  endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
-  endpoint.port = "9997";
-  endpoint.pathname = "/v3/paths/list";
-  endpoint.search = "";
-  endpoint.hash = "";
-  return endpoint.toString();
 };
 var parseGatewayStreams = (value) => {
   if (!value || typeof value !== "object") return [];
@@ -447,17 +420,14 @@ var PANEL_MARKUP = `
 `;
 var createPanelInstance = (context) => {
   const network = context.network;
-  const videoStreamBaseUrl = network?.endpoints.videoStream;
-  if (!network || !videoStreamBaseUrl) {
+  const whepBaseUrl = network?.endpoints.webrtcWhep;
+  const discoveryEndpoint = network?.endpoints.webrtcDiscovery;
+  if (!network || !whepBaseUrl || !discoveryEndpoint) {
     throw new Error(
-      "The WebRTC panel requires its declared video-stream network permission."
+      "The WebRTC panel requires its declared stream-gateway network permissions."
     );
   }
-  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
-  const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    videoStreamBaseUrl,
-    browserBaseUrl
-  );
+  const browserBaseUrl = new URL(whepBaseUrl).origin + "/";
   const defaults = {
     sourceMode: "discovered",
     streamPath: "",
@@ -527,11 +497,7 @@ var createPanelInstance = (context) => {
     const custom = selected === CUSTOM_SOURCE;
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
-    const endpoints = deriveGatewayEndpoints(
-      videoStreamBaseUrl,
-      browserBaseUrl,
-      selected
-    );
+    const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected);
     query('[data-field="whepUrl"]').value = endpoints.whep;
     query('[data-field="rtspUrl"]').value = endpoints.rtsp;
   };
@@ -751,11 +717,7 @@ var createPanelInstance = (context) => {
       availableStreams = streams;
       if (config.sourceMode === "discovered" && streams.length > 0) {
         const selected = streams.find((stream) => stream.name === config.streamPath) ?? streams[0];
-        const endpoints = deriveGatewayEndpoints(
-          videoStreamBaseUrl,
-          browserBaseUrl,
-          selected.name
-        );
+        const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected.name);
         config = {
           ...config,
           streamPath: selected.name,
