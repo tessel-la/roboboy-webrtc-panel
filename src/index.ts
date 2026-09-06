@@ -734,7 +734,12 @@ const createPanelInstance = (
         setCustomSourceVisible(true);
         if (connectAfter && config.autoConnect) void connect();
       } else if (connectAfter) {
-        setStatus("Stream discovery unavailable", "warn");
+        // Naming the reason costs nothing here and is the difference between a panel that says it
+        // failed and one that says what failed.
+        setStatus(
+          `Stream discovery unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          "warn",
+        );
       }
     } finally {
       if (discoveryController === controller) discoveryController = null;
