@@ -4,6 +4,7 @@ import type {
   RoboBoyPanelDefinition,
   RoboBoyPanelInstance,
 } from "@tessel-la/roboboy-panel-sdk";
+import Hls from "hls.js";
 import {
   connectWhep,
   deriveGatewayEndpoints,
@@ -265,6 +266,9 @@ const createPanelInstance = (
   // a same-origin route or at an address of its own, and on which ports. Both arrive absolute.
   const whepBaseUrl = network?.endpoints.webrtcWhep;
   const discoveryEndpoint = network?.endpoints.webrtcDiscovery;
+  // Optional on purpose: only a client that reaches the gateway directly is given one, so a panel
+  // behind a proxy simply has no fallback -- and needs none, since that client is a browser.
+  const hlsBaseUrl = network?.endpoints.webrtcHls ?? "";
   if (!network || !whepBaseUrl || !discoveryEndpoint) {
     throw new Error(
       "The WebRTC panel requires its declared stream-gateway network permissions.",
@@ -290,6 +294,7 @@ const createPanelInstance = (
   let settings: HTMLFormElement | null = null;
   let video: HTMLVideoElement | null = null;
   let connection: WhepConnection | null = null;
+  let hlsPlayer: Hls | null = null;
   let attemptController: AbortController | null = null;
   let discoveryController: AbortController | null = null;
   let availableStreams: GatewayStream[] = [];
@@ -503,7 +508,13 @@ const createPanelInstance = (
     const current = connection;
     connection = null;
     await current?.close();
-    if (video) video.srcObject = null;
+    const currentHls = hlsPlayer;
+    hlsPlayer = null;
+    currentHls?.destroy();
+    if (video) {
+      video.srcObject = null;
+      video.removeAttribute("src");
+    }
     if (root) {
       query<HTMLElement>('[data-role="placeholder"]').hidden = false;
       query<HTMLButtonElement>('[data-action="connect"]').disabled = false;
@@ -512,11 +523,56 @@ const createPanelInstance = (
     }
   };
 
+  /**
+   * The same stream over HLS, for a webview with no WebRTC. Latency is seconds rather than
+   * milliseconds, so this is only ever reached when a peer connection is impossible.
+   */
+  const playOverHls = async (url: string) => {
+    if (!root || !video) return;
+    await disconnect(false);
+    query<HTMLButtonElement>('[data-action="connect"]').disabled = true;
+    query<HTMLButtonElement>('[data-action="disconnect"]').disabled = false;
+    setStatus("Negotiating HLS…", "warn");
+
+    if (!Hls.isSupported()) {
+      setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      query<HTMLButtonElement>('[data-action="connect"]').disabled = false;
+      query<HTMLButtonElement>('[data-action="disconnect"]').disabled = true;
+      return;
+    }
+
+    const player = new Hls({ lowLatencyMode: true });
+    hlsPlayer = player;
+    player.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal || hlsPlayer !== player) return;
+      context.logger.warn("HLS playback failed.", data.details);
+      setStatus(`HLS ${data.details}`, "warn");
+      void disconnect(false);
+    });
+    video.addEventListener(
+      "playing",
+      () => {
+        if (hlsPlayer === player) {
+          query<HTMLElement>('[data-role="placeholder"]').hidden = true;
+          setStatus("Live · HLS", "live");
+        }
+      },
+      { once: true },
+    );
+    player.loadSource(url);
+    player.attachMedia(video);
+    void video.play().catch(() => setStatus("Stream ready · tap video to play", "warn"));
+  };
+
   const connect = async () => {
     if (!root || !video || !active) return;
     // Every route into playback funnels through here -- the button, auto-connect on mount and on
-    // reactivation, and the settings form -- so an unsupported webview is reported once, here.
+    // reactivation, and the settings form -- so an unsupported webview is handled once, here.
     if (!isWebRtcSupported()) {
+      const hlsUrl = config.streamPath && hlsBaseUrl
+        ? deriveGatewayEndpoints(whepBaseUrl, config.streamPath, hlsBaseUrl).hls
+        : "";
+      if (hlsUrl) return void playOverHls(hlsUrl);
       setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
       return;
     }
@@ -737,7 +793,7 @@ const createPanelInstance = (
       });
       // Nothing here can play without WebRTC, so say why once and leave the control alone
       // rather than discovering streams the panel would refuse to connect to.
-      if (isWebRtcSupported()) void refreshStreams(true);
+      if (isWebRtcSupported() || hlsBaseUrl) void refreshStreams(true);
       else {
         query<HTMLButtonElement>('[data-action="connect"]').disabled = true;
         setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");

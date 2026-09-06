@@ -50,6 +50,7 @@ const instance = await module.default.activate({
     endpoints: {
       webrtcWhep: "https://roboboy.example/webrtc/",
       webrtcDiscovery: "https://roboboy.example/webrtc/_discovery/paths",
+      webrtcHls: "https://roboboy.example:8888/",
     },
     fetch: async () => {
       throw new Error("Network access is not expected during artifact activation.");

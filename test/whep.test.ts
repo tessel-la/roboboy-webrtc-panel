@@ -39,6 +39,7 @@ test("builds stream endpoints on whichever gateway the host resolved", () => {
     {
       whep: "https://roboboy.test/webrtc/genesis_wrist_camera/whep",
       rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
+      hls: "",
     },
   );
   // A gateway of its own, which need not share a host or a port with anything else.
@@ -47,6 +48,7 @@ test("builds stream endpoints on whichever gateway the host resolved", () => {
     {
       whep: "http://gateway.local:18889/wrist_camera/whep",
       rtsp: "rtsp://gateway.local:8554/wrist_camera",
+      hls: "",
     },
   );
 });
@@ -160,4 +162,21 @@ test("refuses to negotiate where the webview has no WebRTC", async () => {
   );
 
   assert.equal(requested, false);
+});
+
+test("derives the HLS fallback only where the host published an endpoint", () => {
+  assert.equal(
+    deriveGatewayEndpoints(
+      "http://gateway.local:8889/",
+      "wrist_camera",
+      "http://gateway.local:8888/",
+    ).hls,
+    "http://gateway.local:8888/wrist_camera/index.m3u8",
+  );
+
+  // A client behind a proxy is given no HLS endpoint, and needs none: it is a browser.
+  assert.equal(
+    deriveGatewayEndpoints("https://roboboy.test/webrtc/", "wrist_camera").hls,
+    "",
+  );
 });

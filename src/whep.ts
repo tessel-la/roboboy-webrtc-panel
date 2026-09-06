@@ -126,7 +126,8 @@ export const normalizeWhepEndpoint = (
 export const deriveGatewayEndpoints = (
   whepBaseUrl: string,
   streamPath: string,
-): { whep: string; rtsp: string } => {
+  hlsBaseUrl = "",
+): { whep: string; rtsp: string; hls: string } => {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(streamPath)) {
     throw new Error("The gateway stream path is invalid.");
   }
@@ -134,6 +135,11 @@ export const deriveGatewayEndpoints = (
   return {
     whep: new URL(`${streamPath}/whep`, base).toString(),
     rtsp: `rtsp://${base.hostname}:8554/${streamPath}`,
+    // Empty where the host published no HLS endpoint, which is every deployment that reaches the
+    // gateway through a proxy rather than directly.
+    hls: hlsBaseUrl
+      ? new URL(`${streamPath}/index.m3u8`, new URL(hlsBaseUrl)).toString()
+      : "",
   };
 };
 
