@@ -5,6 +5,7 @@ import type {
   RoboBoyPanelInstance,
 } from "@tessel-la/roboboy-panel-sdk";
 import Hls from "hls.js";
+import { createHlsBrokerLoader } from "./hlsBrokerLoader";
 import {
   connectWhep,
   deriveGatewayEndpoints,
@@ -541,7 +542,12 @@ const createPanelInstance = (
       return;
     }
 
-    const player = new Hls({ lowLatencyMode: true });
+    // hls.js fetches its own playlists and segments, which the panel sandbox forbids, so it is
+    // given a loader that goes through the host like every other request this panel makes.
+    const player = new Hls({
+      lowLatencyMode: true,
+      loader: createHlsBrokerLoader(network) as unknown as typeof Hls.DefaultConfig.loader,
+    });
     hlsPlayer = player;
     player.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal || hlsPlayer !== player) return;
