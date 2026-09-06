@@ -225,9 +225,25 @@ export const waitForIceGatheringComplete = async (
   });
 };
 
+/**
+ * Whether this webview can speak WebRTC at all. A browser carries its own stack, but a packaged
+ * shell borrows the platform's -- on Linux that is WebKitGTK, which some distributions, Ubuntu
+ * among them, build with WebRTC left out. There the constructor is simply not defined, so every
+ * attempt fails on the reference rather than on the network.
+ */
+export const isWebRtcSupported = (): boolean =>
+  typeof RTCPeerConnection !== "undefined";
+
+export const WEBRTC_UNSUPPORTED_MESSAGE =
+  "This app's webview has no WebRTC support, so live playback is unavailable here. " +
+  "Open Robo-Boy in a browser to watch this stream.";
+
 export const connectWhep = async (
   options: WhepConnectionOptions,
 ): Promise<WhepConnection> => {
+  // Checked before the request rather than at the constructor, so an unsupported webview costs
+  // no negotiation and reports the reason instead of a missing global.
+  if (!isWebRtcSupported()) throw new Error(WEBRTC_UNSUPPORTED_MESSAGE);
   const discoveredIceServers = await discoverWhepIceServers(
     options.endpoint,
     options.token,

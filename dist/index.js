@@ -117,7 +117,10 @@ var waitForIceGatheringComplete = async (peer, timeoutMs = 1e4) => {
     peer.addEventListener("icegatheringstatechange", onChange);
   });
 };
+var isWebRtcSupported = () => typeof RTCPeerConnection !== "undefined";
+var WEBRTC_UNSUPPORTED_MESSAGE = "This app's webview has no WebRTC support, so live playback is unavailable here. Open Robo-Boy in a browser to watch this stream.";
 var connectWhep = async (options) => {
+  if (!isWebRtcSupported()) throw new Error(WEBRTC_UNSUPPORTED_MESSAGE);
   const discoveredIceServers = await discoverWhepIceServers(
     options.endpoint,
     options.token,
@@ -624,6 +627,10 @@ var createPanelInstance = (context) => {
   };
   const connect = async () => {
     if (!root || !video || !active) return;
+    if (!isWebRtcSupported()) {
+      setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      return;
+    }
     if (!config.whepUrl) {
       setStatus("Select an available stream first.", "warn");
       setSettingsOpen(true);
@@ -810,7 +817,11 @@ var createPanelInstance = (context) => {
           snapshot.width < 540 || snapshot.height < 320
         );
       });
-      void refreshStreams(true);
+      if (isWebRtcSupported()) void refreshStreams(true);
+      else {
+        query('[data-action="connect"]').disabled = true;
+        setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      }
     },
     setActive(isActive) {
       const wasActive = active;

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  connectWhep,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
   normalizeWhepEndpoint,
   parseGatewayStreams,
   parseIceServers,
+  isWebRtcSupported,
   parseIceServerLinks,
   resolveSessionUrl,
 } from "../src/whep.ts";
@@ -138,4 +140,24 @@ test("resolves relative WHEP session resources", () => {
     "https://camera.test/session/42",
   );
   assert.equal(resolveSessionUrl("https://camera.test/live/whep", null), null);
+});
+
+// Node defines no RTCPeerConnection, which is exactly the shape of a webview built without WebRTC.
+test("refuses to negotiate where the webview has no WebRTC", async () => {
+  assert.equal(isWebRtcSupported(), false);
+
+  let requested = false;
+  await assert.rejects(
+    connectWhep({
+      endpoint: "https://camera.test/live/whep",
+      onTrack() {},
+      fetcher: async () => {
+        requested = true;
+        throw new Error("the panel should not have reached the network");
+      },
+    }),
+    /no WebRTC support/,
+  );
+
+  assert.equal(requested, false);
 });

@@ -8,10 +8,12 @@ import {
   connectWhep,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
+  isWebRtcSupported,
   normalizeWhepEndpoint,
   parseIceServers,
   type GatewayStream,
   type WhepConnection,
+  WEBRTC_UNSUPPORTED_MESSAGE,
 } from "./whep";
 import { collectWebRtcMetrics, type StatsBaseline } from "./stats";
 
@@ -512,6 +514,12 @@ const createPanelInstance = (
 
   const connect = async () => {
     if (!root || !video || !active) return;
+    // Every route into playback funnels through here -- the button, auto-connect on mount and on
+    // reactivation, and the settings form -- so an unsupported webview is reported once, here.
+    if (!isWebRtcSupported()) {
+      setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      return;
+    }
     if (!config.whepUrl) {
       setStatus("Select an available stream first.", "warn");
       setSettingsOpen(true);
@@ -727,7 +735,13 @@ const createPanelInstance = (
           snapshot.width < 540 || snapshot.height < 320,
         );
       });
-      void refreshStreams(true);
+      // Nothing here can play without WebRTC, so say why once and leave the control alone
+      // rather than discovering streams the panel would refuse to connect to.
+      if (isWebRtcSupported()) void refreshStreams(true);
+      else {
+        query<HTMLButtonElement>('[data-action="connect"]').disabled = true;
+        setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      }
     },
     setActive(isActive) {
       const wasActive = active;
