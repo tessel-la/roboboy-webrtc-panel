@@ -10,7 +10,8 @@ The panel does not attempt to decode RTSP in the browser. A media gateway such a
 - WHEP offer/answer negotiation with best-effort session cleanup.
 - Automatic discovery of ready streams from Robo-Boy's restricted MediaMTX path-list route.
 - A source dropdown with refresh and a Custom URL fallback within approved gateway origins.
-- Configurable contain, cover, or stretch behavior and optional audio.
+- Automatic HLS fallback where the webview has no WebRTC, over the same gateway.
+- Picture sized to the panel automatically, or set to contain, cover, or stretch; optional audio.
 - Optional STUN/TURN URLs and a session-only bearer token that is never persisted.
 - Selectable resolution, bitrate, frame-rate, RTT latency, jitter, packet-loss, and dropped-frame indicators.
 - A height-safe, horizontally scrollable statistics footer that remains visible in compact and mobile tiles.
@@ -39,15 +40,25 @@ When Manipulator Sim is active, the same dropdown discovers
 
 ## Stream discovery
 
-Robo-Boy exposes only `GET /webrtc/_discovery/paths` from MediaMTX's loopback
-control API. The panel filters that response to ready paths with safe names,
-sorts them, and derives matching WHEP and RTSP endpoints. If the configured path
-is no longer available, the first ready path is selected automatically. The raw
-control API and all mutation endpoints remain inaccessible through Robo-Boy.
+The panel declares three host endpoints, `webrtcDiscovery`, `webrtcWhep` and `webrtcHls`, and Robo-Boy resolves
+them. It
+therefore reaches whichever gateway the connected deployment runs, without knowing a host or a port: a
+same-origin route where the client is a browser behind Robo-Boy's proxy, the gateway's own address where it is
+the packaged desktop or mobile app, and a gateway on a machine of its own wherever the deployment has put one.
 
-Direct/desktop deployments use the declared `videoStream` host endpoint to derive MediaMTX's standard
-`http://HOST:9997/v3/paths/list` endpoint. When it is not reachable, choose
-**Custom URL…** and enter WHEP/RTSP endpoints on an origin approved by the manifest.
+Discovery is automatic. The panel filters the listing to ready paths with safe names, sorts them, and builds
+matching WHEP and RTSP endpoints beneath the gateway it was given. If the configured path is no longer
+available, the first ready one is selected.
+
+Only that one read-only listing is exposed; the control API and every mutation endpoint stay unreachable
+through Robo-Boy.
+
+Where the webview defines no `RTCPeerConnection` -- some WebKitGTK builds ship without WebRTC entirely -- the
+panel plays the same camera over HLS instead, provided the deployment published `webrtcHls` and the gateway
+serves it. It feeds Media Source Extensions itself rather than through a player library: every byte still goes
+through Robo-Boy, and the source is attached without an object URL, which a panel's opaque origin makes
+unusable. Latency is seconds rather than milliseconds, so it is only used when a peer connection is impossible. When no gateway is reachable, choose **Custom URL…** and enter WHEP/RTSP endpoints on an
+origin approved by the manifest.
 
 ## Develop
 
@@ -69,7 +80,7 @@ To load this working tree in Robo-Boy, list `robo-boy-webrtc-panel` in a schema-
 3. The panel discovers and connects to the ready stream automatically. Open **Configure** to select another discovered stream, refresh, or use a custom endpoint.
 
 The panel runs in an opaque-origin iframe. Its brokered `network` capability is limited to the known discovery and
-WHEP routes derived from the declared `videoStream` endpoint; requests omit browser credentials and redirects are
+WHEP routes beneath the declared gateway endpoints; requests omit browser credentials and redirects are
 rechecked against that route allowlist. Its `storage` capability persists non-secret per-tile settings. It cannot access the parent DOM,
 Robo-Boy stores, cookies, ROS, or unrelated runtime endpoints. To use a truly external WHEP gateway, add its exact
 HTTPS origin to the manifest and review that permission during installation.

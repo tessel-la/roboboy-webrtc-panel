@@ -4,15 +4,18 @@ import type {
   RoboBoyPanelDefinition,
   RoboBoyPanelInstance,
 } from "@tessel-la/roboboy-panel-sdk";
+import { playHlsStream, type HlsPlaybackHandle } from "./hlsPlayback";
+import { resolveVideoFit } from "./videoFit";
 import {
   connectWhep,
-  deriveGatewayDiscoveryEndpoint,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
+  isWebRtcSupported,
   normalizeWhepEndpoint,
   parseIceServers,
   type GatewayStream,
   type WhepConnection,
+  WEBRTC_UNSUPPORTED_MESSAGE,
 } from "./whep";
 import { collectWebRtcMetrics, type StatsBaseline } from "./stats";
 
@@ -32,7 +35,7 @@ interface StreamConfig {
   streamPath: string;
   whepUrl: string;
   rtspUrl: string;
-  fit: "contain" | "cover" | "fill";
+  fit: "auto" | "contain" | "cover" | "fill";
   receiveAudio: boolean;
   autoConnect: boolean;
   iceServers: string;
@@ -89,7 +92,7 @@ const sanitizeConfig = (
       typeof candidate.rtspUrl === "string"
         ? candidate.rtspUrl.trim()
         : defaults.rtspUrl,
-    fit: ["contain", "cover", "fill"].includes(candidate.fit ?? "")
+    fit: ["auto", "contain", "cover", "fill"].includes(candidate.fit ?? "")
       ? (candidate.fit as StreamConfig["fit"])
       : defaults.fit,
     receiveAudio: candidate.receiveAudio === true,
@@ -208,7 +211,7 @@ const PANEL_MARKUP = `
         <summary>Connection and display settings</summary>
         <div class="rb-webrtc__advanced-grid">
           <label>Video fit
-            <select data-field="fit"><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Stretch</option></select>
+            <select data-field="fit"><option value="auto">Auto</option><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Stretch</option></select>
           </label>
           <label class="rb-webrtc__check"><input data-field="receiveAudio" type="checkbox" />Receive audio</label>
           <label class="rb-webrtc__check"><input data-field="autoConnect" type="checkbox" />Connect automatically</label>
@@ -260,23 +263,25 @@ const createPanelInstance = (
   context: RoboBoyPanelContext,
 ): RoboBoyPanelInstance => {
   const network = context.network;
-  const videoStreamBaseUrl = network?.endpoints.videoStream;
-  if (!network || !videoStreamBaseUrl) {
+  // Where the gateway is, is Robo-Boy's to answer: it knows whether this client reaches it through
+  // a same-origin route or at an address of its own, and on which ports. Both arrive absolute.
+  const whepBaseUrl = network?.endpoints.webrtcWhep;
+  const discoveryEndpoint = network?.endpoints.webrtcDiscovery;
+  // Optional on purpose: only a client that reaches the gateway directly is given one, so a panel
+  // behind a proxy simply has no fallback -- and needs none, since that client is a browser.
+  const hlsBaseUrl = network?.endpoints.webrtcHls ?? "";
+  if (!network || !whepBaseUrl || !discoveryEndpoint) {
     throw new Error(
-      "The WebRTC panel requires its declared video-stream network permission.",
+      "The WebRTC panel requires its declared stream-gateway network permissions.",
     );
   }
-  const browserBaseUrl = new URL(videoStreamBaseUrl).origin + "/";
-  const discoveryEndpoint = deriveGatewayDiscoveryEndpoint(
-    videoStreamBaseUrl,
-    browserBaseUrl,
-  );
+  const browserBaseUrl = new URL(whepBaseUrl).origin + "/";
   const defaults: StreamConfig = {
     sourceMode: "discovered",
     streamPath: "",
     whepUrl: "",
     rtspUrl: "",
-    fit: "contain",
+    fit: "auto",
     receiveAudio: false,
     autoConnect: true,
     iceServers: "",
@@ -290,6 +295,7 @@ const createPanelInstance = (
   let settings: HTMLFormElement | null = null;
   let video: HTMLVideoElement | null = null;
   let connection: WhepConnection | null = null;
+  let hlsPlayer: HlsPlaybackHandle | null = null;
   let attemptController: AbortController | null = null;
   let discoveryController: AbortController | null = null;
   let availableStreams: GatewayStream[] = [];
@@ -304,6 +310,17 @@ const createPanelInstance = (
     const element = root?.querySelector<T>(selector);
     if (!element) throw new Error(`WebRTC panel is missing ${selector}.`);
     return element;
+  };
+
+  /** Sizes the picture to the panel it is in, re-run whenever either shape changes. */
+  const applyVideoFit = () => {
+    if (!video) return;
+    const stage = video.parentElement;
+    video.style.objectFit = resolveVideoFit(
+      config.fit,
+      { width: stage?.clientWidth ?? 0, height: stage?.clientHeight ?? 0 },
+      { width: video.videoWidth, height: video.videoHeight },
+    );
   };
 
   const setStatus = (
@@ -352,11 +369,7 @@ const createPanelInstance = (
     const custom = selected === CUSTOM_SOURCE;
     setCustomSourceVisible(custom);
     if (custom || !selected) return;
-    const endpoints = deriveGatewayEndpoints(
-      videoStreamBaseUrl,
-      browserBaseUrl,
-      selected,
-    );
+    const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected);
     query<HTMLInputElement>('[data-field="whepUrl"]').value = endpoints.whep;
     query<HTMLInputElement>('[data-field="rtspUrl"]').value = endpoints.rtsp;
   };
@@ -507,7 +520,13 @@ const createPanelInstance = (
     const current = connection;
     connection = null;
     await current?.close();
-    if (video) video.srcObject = null;
+    const currentHls = hlsPlayer;
+    hlsPlayer = null;
+    currentHls?.close();
+    if (video) {
+      video.srcObject = null;
+      video.removeAttribute("src");
+    }
     if (root) {
       query<HTMLElement>('[data-role="placeholder"]').hidden = false;
       query<HTMLButtonElement>('[data-action="connect"]').disabled = false;
@@ -516,8 +535,55 @@ const createPanelInstance = (
     }
   };
 
+  /**
+   * The same stream over HLS, for a webview with no WebRTC. Latency is seconds rather than
+   * milliseconds, so this is only ever reached when a peer connection is impossible.
+   */
+  const playOverHls = async (url: string) => {
+    if (!root || !video) return;
+    await disconnect(false);
+    query<HTMLButtonElement>('[data-action="connect"]').disabled = true;
+    query<HTMLButtonElement>('[data-action="disconnect"]').disabled = false;
+    setStatus("Negotiating HLS…", "warn");
+
+    if (typeof MediaSource !== "function") {
+      setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      query<HTMLButtonElement>('[data-action="connect"]').disabled = false;
+      query<HTMLButtonElement>('[data-action="disconnect"]').disabled = true;
+      return;
+    }
+
+    const player = playHlsStream({
+      playlistUrl: url,
+      video,
+      network,
+      onPlaying: () => {
+        if (hlsPlayer !== player) return;
+        query<HTMLElement>('[data-role="placeholder"]').hidden = true;
+        setStatus("Live · HLS", "live");
+      },
+      onFailure: (reason) => {
+        if (hlsPlayer !== player) return;
+        context.logger.warn("HLS playback failed.", reason);
+        setStatus(`HLS playback failed: ${reason}`, "warn");
+        void disconnect(false);
+      },
+    });
+    hlsPlayer = player;
+  };
+
   const connect = async () => {
     if (!root || !video || !active) return;
+    // Every route into playback funnels through here -- the button, auto-connect on mount and on
+    // reactivation, and the settings form -- so an unsupported webview is handled once, here.
+    if (!isWebRtcSupported()) {
+      const hlsUrl = config.streamPath && hlsBaseUrl
+        ? deriveGatewayEndpoints(whepBaseUrl, config.streamPath, hlsBaseUrl).hls
+        : "";
+      if (hlsUrl) return void playOverHls(hlsUrl);
+      setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      return;
+    }
     if (!config.whepUrl) {
       setStatus("Select an available stream first.", "warn");
       setSettingsOpen(true);
@@ -624,11 +690,7 @@ const createPanelInstance = (
         const selected =
           streams.find((stream) => stream.name === config.streamPath) ??
           streams[0];
-        const endpoints = deriveGatewayEndpoints(
-          videoStreamBaseUrl,
-          browserBaseUrl,
-          selected.name,
-        );
+        const endpoints = deriveGatewayEndpoints(whepBaseUrl, selected.name);
         config = {
           ...config,
           streamPath: selected.name,
@@ -661,7 +723,12 @@ const createPanelInstance = (
         setCustomSourceVisible(true);
         if (connectAfter && config.autoConnect) void connect();
       } else if (connectAfter) {
-        setStatus("Stream discovery unavailable", "warn");
+        // Naming the reason costs nothing here and is the difference between a panel that says it
+        // failed and one that says what failed.
+        setStatus(
+          `Stream discovery unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          "warn",
+        );
       }
     } finally {
       if (discoveryController === controller) discoveryController = null;
@@ -678,7 +745,7 @@ const createPanelInstance = (
       if (!root) throw new Error("Unable to create the WebRTC panel root.");
       settings = query<HTMLFormElement>('[data-role="settings"]');
       video = query<HTMLVideoElement>('[data-role="video"]');
-      video.style.objectFit = config.fit;
+      applyVideoFit();
       video.muted = !config.receiveAudio;
       populateInputs();
 
@@ -686,6 +753,8 @@ const createPanelInstance = (
         if (!video || !root) return;
         query<HTMLElement>('[data-role="resolution"]').textContent =
           `${video.videoWidth || "—"}×${video.videoHeight || "—"}`;
+        // The stream's shape is only known now, and it decides how the picture is sized.
+        applyVideoFit();
       });
       video.addEventListener("click", () => void video?.play());
       root.addEventListener("click", (event) => {
@@ -718,7 +787,7 @@ const createPanelInstance = (
               throw new Error("The RTSP source must use rtsp:// or rtsps://.");
           }
           persistConfig();
-          video!.style.objectFit = config.fit;
+          applyVideoFit();
           video!.muted = !config.receiveAudio;
           renderStatsVisibility();
           setSettingsOpen(false);
@@ -736,8 +805,15 @@ const createPanelInstance = (
           "data-compact",
           snapshot.width < 540 || snapshot.height < 320,
         );
+        applyVideoFit();
       });
-      void refreshStreams(true);
+      // Nothing here can play without WebRTC, so say why once and leave the control alone
+      // rather than discovering streams the panel would refuse to connect to.
+      if (isWebRtcSupported() || hlsBaseUrl) void refreshStreams(true);
+      else {
+        query<HTMLButtonElement>('[data-action="connect"]').disabled = true;
+        setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
+      }
     },
     setActive(isActive) {
       const wasActive = active;

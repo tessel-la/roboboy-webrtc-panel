@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  deriveGatewayDiscoveryEndpoint,
+  connectWhep,
   deriveGatewayEndpoints,
   discoverGatewayStreams,
   normalizeWhepEndpoint,
   parseGatewayStreams,
   parseIceServers,
+  isWebRtcSupported,
   parseIceServerLinks,
   resolveSessionUrl,
 } from "../src/whep.ts";
@@ -26,82 +27,36 @@ test("normalizes relative WHEP endpoints and rejects non-HTTP transports", () =>
   );
 });
 
-test("derives discovered stream proxy and direct-host endpoints", () => {
+// The host resolves where the gateway is; the panel appends a stream to it and never decides a
+// host or a port for itself. Both shapes arrive absolute, because the host absolutises every
+// endpoint it grants.
+test("builds stream endpoints on whichever gateway the host resolved", () => {
   assert.deepEqual(
     deriveGatewayEndpoints(
-      "/video_stream",
-      "https://roboboy.test",
+      "https://roboboy.test/webrtc/",
       "genesis_wrist_camera",
     ),
     {
-      whep: "/webrtc/genesis_wrist_camera/whep",
+      whep: "https://roboboy.test/webrtc/genesis_wrist_camera/whep",
       rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
+      hls: "",
     },
   );
+  // A gateway of its own, which need not share a host or a port with anything else.
   assert.deepEqual(
-    deriveGatewayEndpoints(
-      "https://roboboy.test/video_stream",
-      "https://roboboy.test/",
-      "genesis_wrist_camera",
-    ),
+    deriveGatewayEndpoints("http://gateway.local:18889/", "wrist_camera"),
     {
-      whep: "/webrtc/genesis_wrist_camera/whep",
-      rtsp: "rtsp://roboboy.test:8554/genesis_wrist_camera",
-    },
-  );
-  assert.deepEqual(
-    deriveGatewayEndpoints(
-      "http://robot.local:8080",
-      "tauri://localhost",
-      "genesis_wrist_camera",
-    ),
-    {
-      whep: "http://robot.local:8889/genesis_wrist_camera/whep",
-      rtsp: "rtsp://robot.local:8554/genesis_wrist_camera",
+      whep: "http://gateway.local:18889/wrist_camera/whep",
+      rtsp: "rtsp://gateway.local:8554/wrist_camera",
+      hls: "",
     },
   );
 });
 
-test("derives arbitrary safe gateway stream paths", () => {
-  assert.deepEqual(
-    deriveGatewayEndpoints(
-      "/video_stream",
-      "https://roboboy.test",
-      "manipulator_wrist_camera",
-    ),
-    {
-      whep: "/webrtc/manipulator_wrist_camera/whep",
-      rtsp: "rtsp://roboboy.test:8554/manipulator_wrist_camera",
-    },
-  );
+test("refuses a stream path that would leave the gateway", () => {
   assert.throws(
-    () =>
-      deriveGatewayEndpoints("/video_stream", "https://roboboy.test", "../bad"),
+    () => deriveGatewayEndpoints("https://roboboy.test/webrtc/", "../bad"),
     /invalid/,
-  );
-});
-
-test("derives web-proxy and desktop discovery endpoints", () => {
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "/video_stream",
-      "https://roboboy.test/workspace",
-    ),
-    "/webrtc/_discovery/paths",
-  );
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "https://roboboy.test/video_stream",
-      "https://roboboy.test/",
-    ),
-    "/webrtc/_discovery/paths",
-  );
-  assert.equal(
-    deriveGatewayDiscoveryEndpoint(
-      "http://robot.local:8080",
-      "tauri://localhost",
-    ),
-    "http://robot.local:9997/v3/paths/list",
   );
 });
 
@@ -187,4 +142,41 @@ test("resolves relative WHEP session resources", () => {
     "https://camera.test/session/42",
   );
   assert.equal(resolveSessionUrl("https://camera.test/live/whep", null), null);
+});
+
+// Node defines no RTCPeerConnection, which is exactly the shape of a webview built without WebRTC.
+test("refuses to negotiate where the webview has no WebRTC", async () => {
+  assert.equal(isWebRtcSupported(), false);
+
+  let requested = false;
+  await assert.rejects(
+    connectWhep({
+      endpoint: "https://camera.test/live/whep",
+      onTrack() {},
+      fetcher: async () => {
+        requested = true;
+        throw new Error("the panel should not have reached the network");
+      },
+    }),
+    /no WebRTC support/,
+  );
+
+  assert.equal(requested, false);
+});
+
+test("derives the HLS fallback only where the host published an endpoint", () => {
+  assert.equal(
+    deriveGatewayEndpoints(
+      "http://gateway.local:8889/",
+      "wrist_camera",
+      "http://gateway.local:8888/",
+    ).hls,
+    "http://gateway.local:8888/wrist_camera/index.m3u8",
+  );
+
+  // A client behind a proxy is given no HLS endpoint, and needs none: it is a browser.
+  assert.equal(
+    deriveGatewayEndpoints("https://roboboy.test/webrtc/", "wrist_camera").hls,
+    "",
+  );
 });

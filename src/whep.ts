@@ -114,56 +114,33 @@ export const normalizeWhepEndpoint = (
   return endpoint.toString();
 };
 
+/**
+ * The endpoints for one stream on the gateway Robo-Boy resolved.
+ *
+ * The base is whatever the host handed over: a same-origin route where the client reaches the
+ * gateway through a proxy, the gateway's own address where it does not. Neither shape, nor any
+ * port, is decided here -- the host knows where the gateway is and this panel does not have to
+ * guess. RTSP is the exception, being the one thing the gateway does not sign-post, and it is shown
+ * for native clients rather than used by this panel.
+ */
 export const deriveGatewayEndpoints = (
-  videoStreamBaseUrl: string,
-  browserBaseUrl: string,
+  whepBaseUrl: string,
   streamPath: string,
-): { whep: string; rtsp: string } => {
+  hlsBaseUrl = "",
+): { whep: string; rtsp: string; hls: string } => {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(streamPath)) {
     throw new Error("The gateway stream path is invalid.");
   }
-  const browser = new URL(browserBaseUrl);
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  const proxyBacked =
-    videoStreamBaseUrl.startsWith("/") || video.pathname === "/video_stream";
-  if (proxyBacked) {
-    return {
-      whep: `/webrtc/${streamPath}/whep`,
-      rtsp: `rtsp://${video.hostname || browser.hostname}:8554/${streamPath}`,
-    };
-  }
-
-  const signaling = new URL(video.toString());
-  signaling.protocol = video.protocol === "https:" ? "https:" : "http:";
-  signaling.port = "8889";
-  signaling.pathname = `/${streamPath}/whep`;
-  signaling.search = "";
-  signaling.hash = "";
+  const base = new URL(whepBaseUrl);
   return {
-    whep: signaling.toString(),
-    rtsp: `rtsp://${video.hostname}:8554/${streamPath}`,
+    whep: new URL(`${streamPath}/whep`, base).toString(),
+    rtsp: `rtsp://${base.hostname}:8554/${streamPath}`,
+    // Empty where the host published no HLS endpoint, which is every deployment that reaches the
+    // gateway through a proxy rather than directly.
+    hls: hlsBaseUrl
+      ? new URL(`${streamPath}/index.m3u8`, new URL(hlsBaseUrl)).toString()
+      : "",
   };
-};
-
-export const deriveGatewayDiscoveryEndpoint = (
-  videoStreamBaseUrl: string,
-  browserBaseUrl: string,
-): string => {
-  const video = new URL(videoStreamBaseUrl, browserBaseUrl);
-  if (
-    videoStreamBaseUrl.startsWith("/") ||
-    video.pathname === "/video_stream"
-  ) {
-    return "/webrtc/_discovery/paths";
-  }
-
-  const endpoint = new URL(video.toString());
-  endpoint.protocol = video.protocol === "https:" ? "https:" : "http:";
-  endpoint.port = "9997";
-  endpoint.pathname = "/v3/paths/list";
-  endpoint.search = "";
-  endpoint.hash = "";
-  return endpoint.toString();
 };
 
 export const parseGatewayStreams = (value: unknown): GatewayStream[] => {
@@ -254,9 +231,25 @@ export const waitForIceGatheringComplete = async (
   });
 };
 
+/**
+ * Whether this webview can speak WebRTC at all. A browser carries its own stack, but a packaged
+ * shell borrows the platform's -- on Linux that is WebKitGTK, which some distributions, Ubuntu
+ * among them, build with WebRTC left out. There the constructor is simply not defined, so every
+ * attempt fails on the reference rather than on the network.
+ */
+export const isWebRtcSupported = (): boolean =>
+  typeof RTCPeerConnection !== "undefined";
+
+export const WEBRTC_UNSUPPORTED_MESSAGE =
+  "This app's webview has no WebRTC support, so live playback is unavailable here. " +
+  "Open Robo-Boy in a browser to watch this stream.";
+
 export const connectWhep = async (
   options: WhepConnectionOptions,
 ): Promise<WhepConnection> => {
+  // Checked before the request rather than at the constructor, so an unsupported webview costs
+  // no negotiation and reports the reason instead of a missing global.
+  if (!isWebRtcSupported()) throw new Error(WEBRTC_UNSUPPORTED_MESSAGE);
   const discoveredIceServers = await discoverWhepIceServers(
     options.endpoint,
     options.token,
