@@ -5,6 +5,7 @@ import type {
   RoboBoyPanelInstance,
 } from "@tessel-la/roboboy-panel-sdk";
 import { playHlsStream, type HlsPlaybackHandle } from "./hlsPlayback";
+import { resolveVideoFit } from "./videoFit";
 import {
   connectWhep,
   deriveGatewayEndpoints,
@@ -34,7 +35,7 @@ interface StreamConfig {
   streamPath: string;
   whepUrl: string;
   rtspUrl: string;
-  fit: "contain" | "cover" | "fill";
+  fit: "auto" | "contain" | "cover" | "fill";
   receiveAudio: boolean;
   autoConnect: boolean;
   iceServers: string;
@@ -91,7 +92,7 @@ const sanitizeConfig = (
       typeof candidate.rtspUrl === "string"
         ? candidate.rtspUrl.trim()
         : defaults.rtspUrl,
-    fit: ["contain", "cover", "fill"].includes(candidate.fit ?? "")
+    fit: ["auto", "contain", "cover", "fill"].includes(candidate.fit ?? "")
       ? (candidate.fit as StreamConfig["fit"])
       : defaults.fit,
     receiveAudio: candidate.receiveAudio === true,
@@ -210,7 +211,7 @@ const PANEL_MARKUP = `
         <summary>Connection and display settings</summary>
         <div class="rb-webrtc__advanced-grid">
           <label>Video fit
-            <select data-field="fit"><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Stretch</option></select>
+            <select data-field="fit"><option value="auto">Auto</option><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Stretch</option></select>
           </label>
           <label class="rb-webrtc__check"><input data-field="receiveAudio" type="checkbox" />Receive audio</label>
           <label class="rb-webrtc__check"><input data-field="autoConnect" type="checkbox" />Connect automatically</label>
@@ -280,7 +281,7 @@ const createPanelInstance = (
     streamPath: "",
     whepUrl: "",
     rtspUrl: "",
-    fit: "contain",
+    fit: "auto",
     receiveAudio: false,
     autoConnect: true,
     iceServers: "",
@@ -309,6 +310,17 @@ const createPanelInstance = (
     const element = root?.querySelector<T>(selector);
     if (!element) throw new Error(`WebRTC panel is missing ${selector}.`);
     return element;
+  };
+
+  /** Sizes the picture to the panel it is in, re-run whenever either shape changes. */
+  const applyVideoFit = () => {
+    if (!video) return;
+    const stage = video.parentElement;
+    video.style.objectFit = resolveVideoFit(
+      config.fit,
+      { width: stage?.clientWidth ?? 0, height: stage?.clientHeight ?? 0 },
+      { width: video.videoWidth, height: video.videoHeight },
+    );
   };
 
   const setStatus = (
@@ -733,7 +745,7 @@ const createPanelInstance = (
       if (!root) throw new Error("Unable to create the WebRTC panel root.");
       settings = query<HTMLFormElement>('[data-role="settings"]');
       video = query<HTMLVideoElement>('[data-role="video"]');
-      video.style.objectFit = config.fit;
+      applyVideoFit();
       video.muted = !config.receiveAudio;
       populateInputs();
 
@@ -741,6 +753,8 @@ const createPanelInstance = (
         if (!video || !root) return;
         query<HTMLElement>('[data-role="resolution"]').textContent =
           `${video.videoWidth || "—"}×${video.videoHeight || "—"}`;
+        // The stream's shape is only known now, and it decides how the picture is sized.
+        applyVideoFit();
       });
       video.addEventListener("click", () => void video?.play());
       root.addEventListener("click", (event) => {
@@ -773,7 +787,7 @@ const createPanelInstance = (
               throw new Error("The RTSP source must use rtsp:// or rtsps://.");
           }
           persistConfig();
-          video!.style.objectFit = config.fit;
+          applyVideoFit();
           video!.muted = !config.receiveAudio;
           renderStatsVisibility();
           setSettingsOpen(false);
@@ -791,6 +805,7 @@ const createPanelInstance = (
           "data-compact",
           snapshot.width < 540 || snapshot.height < 320,
         );
+        applyVideoFit();
       });
       // Nothing here can play without WebRTC, so say why once and leave the control alone
       // rather than discovering streams the panel would refuse to connect to.
