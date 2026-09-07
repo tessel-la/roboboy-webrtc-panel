@@ -10,7 +10,8 @@ The panel does not attempt to decode RTSP in the browser. A media gateway such a
 - WHEP offer/answer negotiation with best-effort session cleanup.
 - Automatic discovery of ready streams from Robo-Boy's restricted MediaMTX path-list route.
 - A source dropdown with refresh and a Custom URL fallback within approved gateway origins.
-- Configurable contain, cover, or stretch behavior and optional audio.
+- Automatic HLS fallback where the webview has no WebRTC, over the same gateway.
+- Picture sized to the panel automatically, or set to contain, cover, or stretch; optional audio.
 - Optional STUN/TURN URLs and a session-only bearer token that is never persisted.
 - Selectable resolution, bitrate, frame-rate, RTT latency, jitter, packet-loss, and dropped-frame indicators.
 - A height-safe, horizontally scrollable statistics footer that remains visible in compact and mobile tiles.
@@ -39,7 +40,8 @@ When Manipulator Sim is active, the same dropdown discovers
 
 ## Stream discovery
 
-The panel declares two host endpoints, `webrtcDiscovery` and `webrtcWhep`, and Robo-Boy resolves both. It
+The panel declares three host endpoints, `webrtcDiscovery`, `webrtcWhep` and `webrtcHls`, and Robo-Boy resolves
+them. It
 therefore reaches whichever gateway the connected deployment runs, without knowing a host or a port: a
 same-origin route where the client is a browser behind Robo-Boy's proxy, the gateway's own address where it is
 the packaged desktop or mobile app, and a gateway on a machine of its own wherever the deployment has put one.
@@ -49,7 +51,13 @@ matching WHEP and RTSP endpoints beneath the gateway it was given. If the config
 available, the first ready one is selected.
 
 Only that one read-only listing is exposed; the control API and every mutation endpoint stay unreachable
-through Robo-Boy. When no gateway is reachable, choose **Custom URL…** and enter WHEP/RTSP endpoints on an
+through Robo-Boy.
+
+Where the webview defines no `RTCPeerConnection` -- some WebKitGTK builds ship without WebRTC entirely -- the
+panel plays the same camera over HLS instead, provided the deployment published `webrtcHls` and the gateway
+serves it. It feeds Media Source Extensions itself rather than through a player library: every byte still goes
+through Robo-Boy, and the source is attached without an object URL, which a panel's opaque origin makes
+unusable. Latency is seconds rather than milliseconds, so it is only used when a peer connection is impossible. When no gateway is reachable, choose **Custom URL…** and enter WHEP/RTSP endpoints on an
 origin approved by the manifest.
 
 ## Develop
