@@ -4,8 +4,7 @@ import type {
   RoboBoyPanelDefinition,
   RoboBoyPanelInstance,
 } from "@tessel-la/roboboy-panel-sdk";
-import Hls from "hls.js";
-import { createHlsBrokerLoader } from "./hlsBrokerLoader";
+import { playHlsStream, type HlsPlaybackHandle } from "./hlsPlayback";
 import {
   connectWhep,
   deriveGatewayEndpoints,
@@ -295,7 +294,7 @@ const createPanelInstance = (
   let settings: HTMLFormElement | null = null;
   let video: HTMLVideoElement | null = null;
   let connection: WhepConnection | null = null;
-  let hlsPlayer: Hls | null = null;
+  let hlsPlayer: HlsPlaybackHandle | null = null;
   let attemptController: AbortController | null = null;
   let discoveryController: AbortController | null = null;
   let availableStreams: GatewayStream[] = [];
@@ -511,7 +510,7 @@ const createPanelInstance = (
     await current?.close();
     const currentHls = hlsPlayer;
     hlsPlayer = null;
-    currentHls?.destroy();
+    currentHls?.close();
     if (video) {
       video.srcObject = null;
       video.removeAttribute("src");
@@ -535,60 +534,30 @@ const createPanelInstance = (
     query<HTMLButtonElement>('[data-action="disconnect"]').disabled = false;
     setStatus("Negotiating HLS…", "warn");
 
-    if (!Hls.isSupported()) {
+    if (typeof MediaSource !== "function") {
       setStatus(WEBRTC_UNSUPPORTED_MESSAGE, "warn");
       query<HTMLButtonElement>('[data-action="connect"]').disabled = false;
       query<HTMLButtonElement>('[data-action="disconnect"]').disabled = true;
       return;
     }
 
-    // hls.js fetches its own playlists and segments, which the panel sandbox forbids, so it is
-    // given a loader that goes through the host like every other request this panel makes.
-    const player = new Hls({
-      lowLatencyMode: true,
-      loader: createHlsBrokerLoader(network) as unknown as typeof Hls.DefaultConfig.loader,
+    const player = playHlsStream({
+      playlistUrl: url,
+      video,
+      network,
+      onPlaying: () => {
+        if (hlsPlayer !== player) return;
+        query<HTMLElement>('[data-role="placeholder"]').hidden = true;
+        setStatus("Live · HLS", "live");
+      },
+      onFailure: (reason) => {
+        if (hlsPlayer !== player) return;
+        context.logger.warn("HLS playback failed.", reason);
+        setStatus(`HLS playback failed: ${reason}`, "warn");
+        void disconnect(false);
+      },
     });
     hlsPlayer = player;
-    // A failure is what the person needs to read, so nothing later overwrites it -- least of all a
-    // playback attempt that was only ever going to fail once the stream had not arrived.
-    let reportedFailure = false;
-    player.on(Hls.Events.ERROR, (_event, data) => {
-      if (hlsPlayer !== player) return;
-      context.logger.warn("HLS playback failed.", `${data.details}${data.fatal ? " (fatal)" : ""}`);
-      if (!data.fatal) return;
-      reportedFailure = true;
-      setStatus(`HLS ${data.details}`, "warn");
-      void disconnect(false);
-    });
-    video.addEventListener(
-      "playing",
-      () => {
-        if (hlsPlayer === player) {
-          query<HTMLElement>('[data-role="placeholder"]').hidden = true;
-          setStatus("Live · HLS", "live");
-        }
-      },
-      { once: true },
-    );
-    // A parsed manifest means the stream is addressable, not that a frame is buffered, so try
-    // again when the element itself says it can play. Whatever refuses is named: "cannot start" and
-    // "is not allowed to start" need different answers, and only the browser knows which it is.
-    const startPlayback = () => {
-      if (hlsPlayer !== player || !video || !video.paused) return;
-      void video.play().catch((error: unknown) => {
-        if (reportedFailure || hlsPlayer !== player) return;
-        const name = error instanceof Error ? error.name : "Error";
-        setStatus(`Playback refused (${name}) · tap video to play`, "warn");
-      });
-    };
-    video.addEventListener("canplay", startPlayback, { once: true });
-    player.on(Hls.Events.MANIFEST_PARSED, () => {
-      if (hlsPlayer !== player || !video) return;
-      query<HTMLElement>('[data-role="placeholder"]').hidden = true;
-      startPlayback();
-    });
-    player.loadSource(url);
-    player.attachMedia(video);
   };
 
   const connect = async () => {
