@@ -126,8 +126,8 @@ const PANEL_MARKUP = `
     .rb-webrtc__dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #7b8795; box-shadow: 0 0 0 3px #7b879522; }
     .rb-webrtc__dot[data-tone="live"] { background: #57d68d; box-shadow: 0 0 0 3px #57d68d22; }
     .rb-webrtc__dot[data-tone="warn"] { background: #ffb454; box-shadow: 0 0 0 3px #ffb45422; }
-    .rb-webrtc__stage { position: relative; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--border-color, #343d49); border-radius: 8px; background: #080b10; }
-    .rb-webrtc video { width: 100%; height: 100%; display: block; background: #080b10; object-fit: contain; }
+    .rb-webrtc__stage { position: relative; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--border-color, #343d49); border-radius: 8px; background: #080b10; }
+    .rb-webrtc video { width: 100%; height: 100%; min-width: 0; min-height: 0; display: block; background: #080b10; object-fit: contain; object-position: center; }
     .rb-webrtc__placeholder { position: absolute; inset: 0; display: grid; place-content: center; gap: 6px; padding: 20px; text-align: center; color: var(--text-secondary, #9aa7b6); pointer-events: none; }
     .rb-webrtc__placeholder strong { color: var(--text-color, #eef3f8); }
     .rb-webrtc__placeholder[hidden] { display: none; }
@@ -312,15 +312,10 @@ const createPanelInstance = (
     return element;
   };
 
-  /** Sizes the picture to the panel it is in, re-run whenever either shape changes. */
+  /** Applies the selected policy; CSS performs the actual sizing as the panel changes shape. */
   const applyVideoFit = () => {
     if (!video) return;
-    const stage = video.parentElement;
-    video.style.objectFit = resolveVideoFit(
-      config.fit,
-      { width: stage?.clientWidth ?? 0, height: stage?.clientHeight ?? 0 },
-      { width: video.videoWidth, height: video.videoHeight },
-    );
+    video.style.objectFit = resolveVideoFit(config.fit);
   };
 
   const setStatus = (
@@ -753,8 +748,6 @@ const createPanelInstance = (
         if (!video || !root) return;
         query<HTMLElement>('[data-role="resolution"]').textContent =
           `${video.videoWidth || "—"}×${video.videoHeight || "—"}`;
-        // The stream's shape is only known now, and it decides how the picture is sized.
-        applyVideoFit();
       });
       video.addEventListener("click", () => void video?.play());
       root.addEventListener("click", (event) => {
@@ -805,7 +798,6 @@ const createPanelInstance = (
           "data-compact",
           snapshot.width < 540 || snapshot.height < 320,
         );
-        applyVideoFit();
       });
       // Nothing here can play without WebRTC, so say why once and leave the control alone
       // rather than discovering streams the panel would refuse to connect to.
