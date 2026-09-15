@@ -3,9 +3,9 @@
   "id": "la.tessel.roboboy.webrtc",
   "name": "WebRTC / RTSP Camera",
   "description": "Plays low-latency WHEP streams and documents their RTSP gateway source.",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "entryPoint": "./dist/index.js",
-  "integrity": "sha256-entZSszL+nbMIWLQmuYD7qWn2c2gHXibXCHBbpVJK1A=",
+  "integrity": "sha256-d9dZyyEqh5NUfIgMsD/Sn8tTfNKjzsI1R1rLD4ZQ8Og=",
   "compatibility": {
     "panelApi": "^2.0.0",
     "roboboy": ">=0.7.0-alpha <1.0.0"

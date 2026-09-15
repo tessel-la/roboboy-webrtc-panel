@@ -11,7 +11,7 @@ The panel does not attempt to decode RTSP in the browser. A media gateway such a
 - Automatic discovery of ready streams from Robo-Boy's restricted MediaMTX path-list route.
 - A source dropdown with refresh and a Custom URL fallback within approved gateway origins.
 - Automatic HLS fallback where the webview has no WebRTC, over the same gateway.
-- Picture sized to the panel automatically, or set to contain, cover, or stretch; optional audio.
+- Auto and contain modes keep the whole centered picture visible at every panel size; cover and stretch remain available explicitly; optional audio.
 - Optional STUN/TURN URLs and a session-only bearer token that is never persisted.
 - Selectable resolution, bitrate, frame-rate, RTT latency, jitter, packet-loss, and dropped-frame indicators.
 - A height-safe, horizontally scrollable statistics footer that remains visible in compact and mobile tiles.
